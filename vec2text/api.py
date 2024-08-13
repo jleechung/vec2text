@@ -176,3 +176,68 @@ def invert_strings(
         num_steps=num_steps,
         sequence_beam_width=sequence_beam_width,
     )
+
+
+def lerp(x, y, weight):
+    weight = weight.to(x.device)
+    return torch.lerp(input=x, end=y, weight=weight)
+
+
+def slerp(x, y, weight):
+    weight = weight.to(x.device)
+    x_norm = x / torch.norm(x)
+    y_norm = y / torch.norm(y)
+    omega = torch.acos(torch.dot(x_norm, y_norm))
+    so = torch.sin(omega)
+    res = (torch.sin((1.0-weight)*omega)/so) * x + (torch.sin(weight*omega)/so) * y
+    return res
+
+
+def invert_strings_interpolate(
+    strings: List[str],
+    corrector: vec2text.trainers.Corrector,
+    num_steps: int = None,
+    sequence_beam_width: int = 0,
+    num_interps: int = 1,
+    method: str = 'slerp'
+) -> List[str]:
+    '''
+    Given two input strings, interpolate their embeddings and invert embeddings
+    to strings. 
+    Inputs:
+    - strings: list of strings
+    - corrector: corrector
+    - num_steps: number of correction steps
+    - sequence_beam_width: size of search space
+    - num_interps: number of interpolations
+    - method: slerp or lerp
+    '''
+    inputs = corrector.embedder_tokenizer(
+        strings,
+        return_tensors="pt",
+        max_length=128,
+        truncation=True,
+        padding="max_length",
+    )
+    inputs = inputs.to(device)
+    with torch.no_grad():
+        frozen_embeddings = corrector.inversion_trainer.call_embedding_model(
+            input_ids=inputs.input_ids,
+            attention_mask=inputs.attention_mask,
+        )
+    interpolated_embeddings = []
+    for weight in torch.linspace(0,1,steps=num_interps):
+        if method == 'lerp':
+            interp = lerp(frozen_embeddings[0], frozen_embeddings[1], weight)
+        elif method == 'slerp':
+            interp = slerp(frozen_embeddings[0], frozen_embeddings[1], weight)
+        else:
+            raise(NotImplementedError)
+        interpolated_embeddings.append(interp)
+    interpolated_embeddings = torch.stack(interpolated_embeddings)
+    return invert_embeddings(
+        embeddings=interpolated_embeddings,
+        corrector=corrector,
+        num_steps=num_steps,
+        sequence_beam_width=sequence_beam_width,
+    ), interpolated_embeddings

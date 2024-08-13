@@ -13,5 +13,6 @@ from .api import (  # noqa: F401
     invert_strings,
     load_corrector,
     load_pretrained_corrector,
+    invert_strings_interpolate
 )
 from .trainers import Corrector  # noqa: F401
